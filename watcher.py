@@ -2,6 +2,10 @@ import cv2
 import dlib
 from tensorflow.keras.models import model_from_json
 import numpy as np
+import socket
+
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client.connect(('127.0.0.1',26950))
 
 # Constants
 BOX_COLOR = (0, 255, 0)
@@ -83,6 +87,8 @@ while True:
         if len(face_emotions[tracker_id]['emotions']) > EMOTION_FRAME_THRESHOLD:
             if all(e == face_emotions[tracker_id]['emotions'][-1] for e in face_emotions[tracker_id]['emotions'][-EMOTION_FRAME_THRESHOLD:]):
                 face_emotions[tracker_id]['display_emotion'] = current_emotion
+                message = f"{tracker_id}-{current_emotion}".encode('utf-8')
+                client.send(message)
             face_emotions[tracker_id]['emotions'].pop(0)
             
         display_emotion = face_emotions[tracker_id]['display_emotion']
@@ -100,3 +106,4 @@ while True:
 
 video_stream.release()
 cv2.destroyAllWindows()
+client.close()
