@@ -2,7 +2,8 @@ import cv2
 from tensorflow.keras.models import model_from_json
 import numpy as np
 import socket
-from deepface import DeepFace
+import mediapipe as mp
+import gaze
 
 #Set up the socket with an indicated connection ip and port
 #client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -13,10 +14,30 @@ BOX_COLOR = (0, 255, 0)
 TEXT_COLOR = (0, 255, 0)
 EMOTION_FRAME_THRESHOLD = 2
 
+# Emotion dictionary
+emotion_dict = {0: "Angry", 1: "Disgusted", 2: "Fearful", 
+                3: "Happy", 4: "Neutral", 5: "Sad", 6: "Surprised"}
+
 # Load DNN face detector
 modelFile = "./res10_300x300_ssd_iter_140000.caffemodel"
 configFile = "./deploy.prototxt"
 net = cv2.dnn.readNetFromCaffe(configFile, modelFile)
+
+# Initialize Mediapipe for facial landmarks
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(
+    max_num_faces=5,
+    static_image_mode=False, 
+    refine_landmarks=True,
+    min_detection_confidence=0.5, 
+    min_tracking_confidence=0.5
+)
+
+# Load emotion detection model
+with open('./emotion_model.json', 'r') as json_file:
+    loaded_model_json = json_file.read()
+emotion_model = model_from_json(loaded_model_json)
+emotion_model.load_weights('./emotion_model.weights.h5')
 
 # Initialize video stream
 video_stream = cv2.VideoCapture(0)
@@ -74,9 +95,11 @@ while True:
         face_expanded = np.expand_dims(face_resized, axis=0)
         face_expanded = np.expand_dims(face_expanded, axis=-1)  
         
-        predictions =  DeepFace.analyze(face_expanded, actions=['emotion'])
-        current_emotion = predictions['dominant_emotion']
+        predictions = emotion_model.predict(face_expanded)
+        max_index = np.argmax(predictions[0])
+        current_emotion = emotion_dict[max_index]
         
+        #Emotion detection
         face_emotions[tracker_id]['emotions'].append(current_emotion)
         if len(face_emotions[tracker_id]['emotions']) > EMOTION_FRAME_THRESHOLD:
             # Confirm emotion if it remains consistent over a threshold of frames
@@ -91,8 +114,14 @@ while True:
         if display_emotion:
             cv2.rectangle(frame, (x, y), (x2, y2), BOX_COLOR, 2)
             cv2.putText(frame, display_emotion, (x - 20, y - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, TEXT_COLOR, 2) 
-            
+                  
     trackers = active_trackers # Update trackers
+    #Gazing detection
+    gazeResults = face_mesh.process(frame)
+    
+    if gazeResults.multi_face_landmarks:
+        for gazeResult in gazeResults.multi_face_landmarks:
+            gaze.gaze(frame, gazeResult)
     
     cv2.imshow('Emotion Detection', frame)
     
