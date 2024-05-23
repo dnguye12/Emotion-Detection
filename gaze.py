@@ -65,7 +65,6 @@ def gaze(frame, points):
         gaze_left = left_pupil + (eye_pupil2D_left[0][0] - left_pupil) - (head_pose_left[0][0] - left_pupil)
         p1_left = (int(left_pupil[0]), int(left_pupil[1]))
         p2_left = (int(gaze_left[0]), int(gaze_left[1]))
-        print(p2_left)
         cv2.line(frame, p1_left, p2_left, (0, 0, 255), 2)
 
         # Right eye gaze
@@ -79,3 +78,4 @@ def gaze(frame, points):
         p1_right = (int(right_pupil[0]), int(right_pupil[1]))
         p2_right = (int(gaze_right[0]), int(gaze_right[1]))
         cv2.line(frame, p1_right, p2_right, (0, 0, 255), 2)
+        return p2_left
