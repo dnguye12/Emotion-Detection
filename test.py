@@ -4,6 +4,7 @@ import numpy as np
 import socket
 import mediapipe as mp
 import gaze
+from multiprocessing import Process, Queue
 
 #Set up the socket with an indicated connection ip and port
 #client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -39,104 +40,131 @@ with open('./emotion_model.json', 'r') as json_file:
 emotion_model = model_from_json(loaded_model_json)
 emotion_model.load_weights('./emotion_model.weights.h5')
 
-# Initialize video stream
-video_stream = cv2.VideoCapture(0)
-
 # Trackers and face emotion storage
 face_emotions = {}
 trackers = {} 
 
-while True:
-    grabbed, frame = video_stream.read()
-    
-    #If no camera is present, stop the program.
-    if not grabbed:
-        break
-    
-    frame = cv2.resize(frame, (1280, 720)) # Resize frame for consistency
-    (h, w) = frame.shape[:2]
-    blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
-    net.setInput(blob)
-    detections = net.forward()
-    
-    if not trackers: # If no trackers, detect faces
-        trackers.clear()
-        face_emotions.clear()
-        for i in range(detections.shape[2]):
-            confidence = detections[0, 0, i, 2]
-            if confidence > 0.7: # Filter weak detections
-                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-                (x, y, x2, y2) = box.astype("int")
-                tracker = cv2.TrackerKCF_create()
-                tracker.init(frame, (x, y, x2 - x, y2 - y))
-                tracker_id = id(tracker)
-                trackers[tracker_id] = tracker
-                face_emotions[tracker_id] = {'emotions': [], 'display_emotion': ""}
-                
-    active_trackers = {}
-    
-    #Gazing detection
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    gazeResults = face_mesh.process(frame_rgb)
-    
-    for tracker_id, tracker in trackers.items():
-        success, bbox = tracker.update(frame)
-        if not success:
-            continue
-        
-        x, y, w, h = [int(v) for v in bbox]
-        x2, y2 = x + w, y + h
-        
-        # Ignore out of bounds or too small boxes
-        if x <= 0 or y <= 0 or x2 >= frame.shape[1] or y2 >= frame.shape[0] or w < 30 or h < 30:
-            continue  
-        
-        active_trackers[tracker_id] = tracker
-        
-        # Prepare the face ROI for emotion detection
-        face_resized = cv2.resize(frame[y:y2, x:x2], (48, 48))
-        face_resized = cv2.cvtColor(face_resized, cv2.COLOR_BGR2GRAY)
-        face_resized = face_resized.astype("float32") / 255.0
-        face_expanded = np.expand_dims(face_resized, axis=0)
-        face_expanded = np.expand_dims(face_expanded, axis=-1)  
-        
-        predictions = emotion_model.predict(face_expanded)
-        max_index = np.argmax(predictions[0])
-        current_emotion = emotion_dict[max_index]
-        
-        #Emotion detection
-        face_emotions[tracker_id]['emotions'].append(current_emotion)
-        if len(face_emotions[tracker_id]['emotions']) > EMOTION_FRAME_THRESHOLD:
-            # Confirm emotion if it remains consistent over a threshold of frames
-            if all(e == face_emotions[tracker_id]['emotions'][-1] for e in face_emotions[tracker_id]['emotions'][-EMOTION_FRAME_THRESHOLD:]):
-                face_emotions[tracker_id]['display_emotion'] = current_emotion
-            face_emotions[tracker_id]['emotions'].pop(0)
+def detection_system(frame_queue, result_queue, face_emotions, trackers):
+    print('bruhs')
+    while True:
+        if not frame_queue.empty():
+            frame = frame_queue.get()
+            if frame is None:
+                break
             
-        display_emotion = face_emotions[tracker_id]['display_emotion']
-        
-        if display_emotion:
-            cv2.rectangle(frame, (x, y), (x2, y2), BOX_COLOR, 2)
-            cv2.putText(frame, display_emotion, (x - 20, y - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, TEXT_COLOR, 2) 
-        
-        current_gaze = -1  
-        if gazeResults.multi_face_landmarks:
-            for face_landmarks in gazeResults.multi_face_landmarks:
-                landmark_bbox_center = (int(face_landmarks.landmark[1].x * frame.shape[1]), int(face_landmarks.landmark[1].y * frame.shape[0]))
+            frame = cv2.resize(frame, (1280, 720)) # Resize frame for consistency
+            (h, w) = frame.shape[:2]
+            blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
+            net.setInput(blob)
+            detections = net.forward()
+            
+            if not trackers: # If no trackers, detect faces
+                trackers.clear()
+                face_emotions.clear()
+                for i in range(detections.shape[2]):
+                    confidence = detections[0, 0, i, 2]
+                    if confidence > 0.7: # Filter weak detections
+                        box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                        (x, y, x2, y2) = box.astype("int")
+                        tracker = cv2.TrackerKCF_create()
+                        tracker.init(frame, (x, y, x2 - x, y2 - y))
+                        tracker_id = id(tracker)
+                        trackers[tracker_id] = tracker
+                        face_emotions[tracker_id] = {'emotions': [], 'display_emotion': ""}
+                        
+            active_trackers = {}
+            
+            #Gazing detection
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            gazeResults = face_mesh.process(frame_rgb)
+            
+            for tracker_id, tracker in trackers.items():
+                success, bbox = tracker.update(frame)
+                if not success:
+                    continue
                 
-                if (x <= landmark_bbox_center[0] <= x2) and (y <= landmark_bbox_center[1] <= y2):
-                    current_gaze = gaze.gaze(frame, face_landmarks)
-                    break
+                x, y, w, h = [int(v) for v in bbox]
+                x2, y2 = x + w, y + h
                 
-        message = f"{tracker_id}-{current_emotion}-{current_gaze}".encode('utf-8')
-        #client.send(message)
+                # Ignore out of bounds or too small boxes
+                if x <= 0 or y <= 0 or x2 >= frame.shape[1] or y2 >= frame.shape[0] or w < 30 or h < 30:
+                    continue  
                 
-    trackers = active_trackers # Update trackers
-    
-    cv2.imshow('Emotion Detection', frame)
-    
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+                active_trackers[tracker_id] = tracker
+                
+                # Prepare the face ROI for emotion detection
+                face_resized = cv2.resize(frame[y:y2, x:x2], (48, 48))
+                face_resized = cv2.cvtColor(face_resized, cv2.COLOR_BGR2GRAY)
+                face_resized = face_resized.astype("float32") / 255.0
+                face_expanded = np.expand_dims(face_resized, axis=0)
+                face_expanded = np.expand_dims(face_expanded, axis=-1)  
+                
+                predictions = emotion_model.predict(face_expanded)
+                max_index = np.argmax(predictions[0])
+                current_emotion = emotion_dict[max_index]
+                
+                #Emotion detection
+                face_emotions[tracker_id]['emotions'].append(current_emotion)
+                if len(face_emotions[tracker_id]['emotions']) > EMOTION_FRAME_THRESHOLD:
+                    # Confirm emotion if it remains consistent over a threshold of frames
+                    if all(e == face_emotions[tracker_id]['emotions'][-1] for e in face_emotions[tracker_id]['emotions'][-EMOTION_FRAME_THRESHOLD:]):
+                        face_emotions[tracker_id]['display_emotion'] = current_emotion
+                    face_emotions[tracker_id]['emotions'].pop(0)
+                    
+                display_emotion = face_emotions[tracker_id]['display_emotion']
+                
+                if display_emotion:
+                    cv2.rectangle(frame, (x, y), (x2, y2), BOX_COLOR, 2)
+                    cv2.putText(frame, display_emotion, (x - 20, y - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, TEXT_COLOR, 2) 
+                
+                current_gaze = -1  
+                if gazeResults.multi_face_landmarks:
+                    for face_landmarks in gazeResults.multi_face_landmarks:
+                        landmark_bbox_center = (int(face_landmarks.landmark[1].x * frame.shape[1]), int(face_landmarks.landmark[1].y * frame.shape[0]))
+                        
+                        if (x <= landmark_bbox_center[0] <= x2) and (y <= landmark_bbox_center[1] <= y2):
+                            current_gaze = gaze.gaze(frame, face_landmarks)
+                            break
+                        
+                message = f"{tracker_id}-{current_emotion}-{current_gaze}".encode('utf-8')
+                #client.send(message)
+                        
+            trackers = active_trackers # Update trackers
+            result_queue.put(frame)
+            
+def main():
+    frame_queue = Queue()
+    result_queue = Queue()
 
-video_stream.release()
-cv2.destroyAllWindows()
-#client.close()
+    process = Process(target=detection_system, args=(frame_queue, result_queue, face_emotions, trackers))
+    process.start()
+
+    # Initialize video stream
+    video_stream = cv2.VideoCapture('./videos/test2.mp4')       
+
+    while True:
+        grabbed, frame = video_stream.read()
+        
+        #If no camera is present, stop the program.
+        if not grabbed:
+            break
+        
+        if frame_queue.empty():
+            frame_queue.put(frame)
+            
+        if not result_queue.empty():
+            frame = result_queue.get()
+            cv2.imshow('Emotion Detection', frame)
+            
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    frame_queue.put(None)
+    process.terminate()
+    process.join()
+    video_stream.release()
+    cv2.destroyAllWindows()
+    #client.close()
+    
+if __name__ == "__main__":
+    main()
