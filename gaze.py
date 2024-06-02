@@ -78,4 +78,32 @@ def gaze(frame, points):
         p1_right = (int(right_pupil[0]), int(right_pupil[1]))
         p2_right = (int(gaze_right[0]), int(gaze_right[1]))
         #cv2.line(frame, p1_right, p2_right, (0, 0, 255), 2)
-        return (p1_left, p2_left, p1_right, p2_right)
+        
+        rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
+        forward_direction = np.array([[0,0,1]], dtype="double").T
+        head_direction = rotation_matrix @ forward_direction
+        
+        head_direction_norm = head_direction / np.linalg.norm(head_direction)
+        
+        #Camera's viewing direction (z-axis)
+        camera_viewing_direction = np.array([0, 0, 1])
+
+        # Calculate the cosine of the angle using the dot product
+        cos_angle = np.dot(head_direction_norm.flatten(), camera_viewing_direction)
+
+        # Calculate the angle in degrees
+        angle = np.degrees(np.arccos(cos_angle))
+
+        # Define a threshold angle (e.g., 15 degrees)
+        threshold_angle = 30
+
+        # Determine if the user is looking at the camera
+        is_looking_at_camera = angle < threshold_angle
+        
+        #print(is_looking_at_camera)
+        
+        nose_tip = image_points[0]
+        
+        head_direction_point = (int(nose_tip[0] + head_direction[0]), int(nose_tip[1] + head_direction[1]))
+        
+        return (p1_left, p2_left, p1_right, p2_right, is_looking_at_camera)
