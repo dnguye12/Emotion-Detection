@@ -25,7 +25,7 @@ BOX_COLOR = (0, 255, 0)
 TEXT_COLOR = (0, 255, 0)
 GAZE_COLOR = (0, 0, 255)
 
-EMOTION_FRAME_THRESHOLD = 3
+EMOTION_FRAME_THRESHOLD = 2
 LAST_DETECTED_THRESHOLD = 1
 
 # Emotion dictionary
@@ -68,6 +68,8 @@ def capture_frames(video_path, frame_queue):
         # If the frame is not read successfully, exit the loop
         if not ret:
             break
+        
+        frame = cv2.resize(frame, (1280, 720))
         
         # If the frame queue is empty, add the frame to the queue
         if frame_queue.empty():
@@ -120,7 +122,7 @@ def emotion_detection(emotion_frame_queue, emotion_faces_queue, emotion_output_q
             old_changed = tracker['changed']
             old_looking_camera = tracker["looking_camera"]
             
-            if old_display_emotion == '':
+            if old_display_emotion == "":
                 # Initialize emotion data if not set
                 old_display_emotion = current_emotion
                 old_emotion = current_emotion
@@ -138,6 +140,10 @@ def emotion_detection(emotion_frame_queue, emotion_faces_queue, emotion_output_q
                     if old_emotion != old_display_emotion:
                         old_display_emotion = old_emotion
                         old_changed = True
+                    else:
+                        old_changed = False
+                else:
+                    old_changed = False
             
             # Prepare the updated tracker data
             current_tracker = {
@@ -297,8 +303,9 @@ def main():
             drawing_list = updated_trackers
             
             # Pass frame and face data to emotion detection process
-            emotion_frame_queue.put(frame)
-            emotion_faces_queue.put(drawing_list)
+            if emotion_output_queue.empty():
+                emotion_frame_queue.put(frame)
+                emotion_faces_queue.put(drawing_list)
             
             # Retrieve and update emotion data
             if not emotion_output_queue.empty():
@@ -311,8 +318,9 @@ def main():
                         drawing_list[tracker_id]['counter'] = tracker['counter']
                         
             # Pass frame and face data to gaze tracking process
-            gaze_frame_queue.put(frame)
-            gaze_faces_queue.put(drawing_list)
+            if gaze_output_queue.empty():
+                gaze_frame_queue.put(frame)
+                gaze_faces_queue.put(drawing_list)
                   
             # Retrieve and update gaze data
             if not gaze_output_queue.empty():
@@ -339,7 +347,7 @@ def main():
                         cv2.line(frame, p1_right, p2_right, GAZE_COLOR, 2)
                 else:
                     drawing_list[tracker_id]['gaze'] = None
-                    
+                
                 if tracker['changed']:
                     message = f"{tracker_id}-{tracker['box']}-{tracker['display_emotion']}-{tracker['gaze']}".encode('utf-8')
                     client.send(message)
