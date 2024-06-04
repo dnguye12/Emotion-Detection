@@ -4,6 +4,30 @@ import numpy as np
 relative = lambda landmark, shape: (int(landmark.x * shape[1]), int(landmark.y * shape[0]))
 relativeT = lambda landmark, shape: (int(landmark.x * shape[1]), int(landmark.y * shape[0]), 0)
 
+def looking_direction(p1_left, p2_left, p1_right, p2_right):
+    horizontal_direction = "center"
+    vertical_direction = "center"
+    
+    x1_left, y1_left = p1_left
+    x2_left, y2_left = p2_left
+    x1_right, y1_right = p1_right
+    x2_right, y2_right = p2_right
+    x = ((x2_left / x1_left) + (x2_right / x1_right)) * 100 / 2
+    y = y2_left / y1_left * 100
+    
+    if x >= 110:
+        horizontal_direction = "right"
+    elif x <= 90:
+        horizontal_direction = "left"
+        
+    if y >= 110:
+        vertical_direction = "down"
+    elif y <= 90:
+        vertical_direction = "up"
+    direction = horizontal_direction + " " + vertical_direction
+    
+    return direction
+
 def gaze(frame, points):
     image_points = np.array([
         relative(points.landmark[4], frame.shape),  # Nose tip
@@ -78,7 +102,7 @@ def gaze(frame, points):
         p1_right = (int(right_pupil[0]), int(right_pupil[1]))
         p2_right = (int(gaze_right[0]), int(gaze_right[1]))
         #cv2.line(frame, p1_right, p2_right, (0, 0, 255), 2)
-        
+        '''
         rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
         forward_direction = np.array([[0,0,1]], dtype="double").T
         head_direction = rotation_matrix @ forward_direction
@@ -105,5 +129,6 @@ def gaze(frame, points):
         nose_tip = image_points[0]
         
         head_direction_point = (int(nose_tip[0] + head_direction[0]), int(nose_tip[1] + head_direction[1]))
-        
-        return (p1_left, p2_left, p1_right, p2_right, is_looking_at_camera)
+        '''
+        looking_dir = looking_direction(p1_left, p2_left, p1_right, p2_right)
+        return (p1_left, p2_left, p1_right, p2_right, looking_dir)
