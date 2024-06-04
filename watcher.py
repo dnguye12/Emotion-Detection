@@ -9,9 +9,12 @@ import gaze
 import mediapipe as mp
 import socket
 
-#Set up socket with an indicated connection ip and port
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect(('127.0.0.1',26950))
+USE_CLIENT = False
+
+if USE_CLIENT:
+    #Set up socket with an indicated connection ip and port
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(('127.0.0.1',26950))
 
 # Ensure PyTorch uses GPU if available
 device = 0 if torch.cuda.is_available() else "cpu"
@@ -19,7 +22,7 @@ if device == "0":
     torch.cuda.set_device(device)
 
 # Constants
-VIDEO_INPUT = 0
+VIDEO_INPUT = "./videos/test3.mp4"
 
 BOX_COLOR = (0, 255, 0)
 TEXT_COLOR = (0, 255, 0)
@@ -120,7 +123,7 @@ def emotion_detection(emotion_frame_queue, emotion_faces_queue, emotion_output_q
             old_emotion = tracker['emotion']
             old_counter = tracker['counter']
             old_changed = tracker['changed']
-            old_looking_camera = tracker["looking_camera"]
+            old_looking_direction = tracker["looking_direction"]
             
             if old_display_emotion == "":
                 # Initialize emotion data if not set
@@ -155,7 +158,7 @@ def emotion_detection(emotion_frame_queue, emotion_faces_queue, emotion_output_q
                 "gaze": tracker['gaze'],
                 "last_gaze": tracker['last_gaze'],
                 "changed": old_changed,
-                "looking_camera": old_looking_camera
+                "looking_direction": old_looking_direction
             }
             updated_faces[tracker_id] = current_tracker
         # Put the updated faces data into the emotion output queue
@@ -198,7 +201,7 @@ def gaze_tracking(gaze_frame_queue, gaze_faces_queue, gaze_output_queue):
                     
                     # Extract gaze points
                     #is_looking_at_camera = False
-                    (p1_left, p2_left, p1_right, p2_right, is_looking_at_camera) = current_gaze
+                    (p1_left, p2_left, p1_right, p2_right, looking_direction) = current_gaze
                     current_gaze = (p1_left, p2_left, p1_right, p2_right)
                     
                     # Check if the gaze points are within the face bounding box
@@ -213,7 +216,7 @@ def gaze_tracking(gaze_frame_queue, gaze_faces_queue, gaze_output_queue):
                             "gaze": current_gaze,
                             "last_gaze": time.time(),
                             "changed": True,
-                            "looking_camera": is_looking_at_camera
+                            "looking_direction": looking_direction
                         }
                         updated_faces[tracker_id] = current_tracker
         # Put the updated faces data into the gaze output queue
@@ -290,7 +293,7 @@ def main():
                             "gaze": None,
                             "last_gaze": time.time(),
                             "changed": True,
-                            "looking_camera": False
+                            "looking_direction": ""
                         }
                         
             # Remove old trackers that no longer exist in the screen
@@ -330,14 +333,14 @@ def main():
                     if tracker_id in drawing_list:
                         drawing_list[tracker_id]['gaze'] = tracker['gaze']  
                         drawing_list[tracker_id]['last_gaze'] = helper_time
-                        drawing_list[tracker_id]['looking_camera'] = tracker['looking_camera']
+                        drawing_list[tracker_id]["looking_direction"] = tracker["looking_direction"]
             
             # Draw bounding boxes, emotions, and gaze lines on the frame
             for tracker_id, tracker in drawing_list.items():
                 (x, y, w, h) = tracker['box']
                 cv2.rectangle(frame, (x, y), (x + w, y + h), BOX_COLOR, 2)
                 display_emotion = tracker['display_emotion']
-                cv2.putText(frame, display_emotion, (x - 20, y - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, TEXT_COLOR, 2) 
+                cv2.putText(frame, display_emotion, (x - 20, y - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, TEXT_COLOR, 2) 
         
                 if helper_time - tracker['last_gaze'] <= LAST_DETECTED_THRESHOLD * 2:
                     gaze = tracker['gaze']
@@ -345,10 +348,13 @@ def main():
                         (p1_left, p2_left, p1_right, p2_right) = gaze
                         cv2.line(frame, p1_left, p2_left, GAZE_COLOR, 2)
                         cv2.line(frame, p1_right, p2_right, GAZE_COLOR, 2)
+                    looking_direction = tracker["looking_direction"]
+                    if looking_direction != "":
+                        cv2.putText(frame, looking_direction, (x - 20, y - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, TEXT_COLOR, 2)
                 else:
                     drawing_list[tracker_id]['gaze'] = None
                 
-                if tracker['changed']:
+                if tracker['changed'] and USE_CLIENT:
                     message = f"{tracker_id}-{tracker['box']}-{tracker['display_emotion']}-{tracker['gaze']}".encode('utf-8')
                     client.send(message)
 
@@ -369,7 +375,8 @@ def main():
     gaze_process.terminate()
     gaze_process.join()
     cv2.destroyAllWindows()
-    client.close()
+    if USE_CLIENT:
+        client.close()
     
 if __name__ == "__main__":
     main()
